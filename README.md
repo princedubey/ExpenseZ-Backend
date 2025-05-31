@@ -35,46 +35,85 @@ A production-ready backend API for the ExpenseZ expense tracking application.
 - Node.js (v14 or higher)
 - MongoDB (local or Atlas)
 
-## Installation
+## Deployment Options
 
-1. Clone the repository:
+### 1. Deploying to Vercel
+
+1. Install Vercel CLI:
 ```bash
-git clone <repository-url>
-cd ExpenseZ_Backend
+npm i -g vercel
 ```
 
-2. Install dependencies:
+2. Login to Vercel:
+```bash
+vercel login
+```
+
+3. Deploy to Vercel:
+```bash
+npm run deploy
+```
+
+4. Set up environment variables in Vercel:
+   - Go to your project settings in Vercel dashboard
+   - Add the following environment variables:
+     - `MONGODB_URI`: Your MongoDB connection string
+     - Add any other environment variables from your `.env` file
+
+### 2. Traditional Server Deployment
+
+1. Build the application:
+```bash
+npm run build
+```
+
+2. Deploy to your server:
+```bash
+npm run deploy:server
+```
+
+3. Set up environment variables on your server:
+   - Create a `.env` file with all required environment variables
+   - Make sure to set `NODE_ENV=production`
+
+## Environment Variables
+
+Create a `.env` file in the root directory with the following variables:
+
+```env
+MONGODB_URI=your_mongodb_connection_string
+PORT=5000
+# Add other environment variables as needed
+```
+
+## Development
+
+1. Install dependencies:
 ```bash
 npm install
 ```
 
-3. Create a `.env` file in the root directory with the following variables:
-```env
-PORT=5000
-NODE_ENV=development
-MONGODB_URI=mongodb://localhost:27017/expensez
-JWT_SECRET=your_jwt_secret_key_here
-JWT_EXPIRES_IN=7d
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX=100
-```
-
-4. Seed default categories:
-```bash
-node src/utils/seedCategories.js
-```
-
-## Running the Application
-
-Development:
+2. Start development server:
 ```bash
 npm run dev
 ```
 
-Production:
+3. Seed initial data (if needed):
+```bash
+npm run seed
+```
+
+## Production
+
+To run in production mode:
+
 ```bash
 npm start
 ```
+
+## API Documentation
+
+API documentation will be available at `/api-docs` when the server is running.
 
 ## API Endpoints
 

@@ -6,7 +6,11 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "node src/utils/seedCategories.js"
+    "seed": "node src/utils/seedCategories.js",
+    "vercel-build": "echo 'Building for Vercel'",
+    "build": "echo 'Building for production'",
+    "deploy": "vercel --prod",
+    "deploy:server": "echo 'Deploy to traditional server'"
   },
   "keywords": [
     "expense",
