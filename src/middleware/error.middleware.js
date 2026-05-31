@@ -3,7 +3,15 @@ const errorHandler = (err, req, res, next) => {
   error.message = err.message;
 
   // Log error for dev
-  console.error(err);
+  try {
+    // eslint-disable-next-line global-require
+    const logger = require('../utils/logger');
+    logger.error(err);
+  } catch (e) {
+    // fallback
+    // eslint-disable-next-line no-console
+    console.error(err);
+  }
 
   // Mongoose bad ObjectId
   if (err.name === 'CastError') {

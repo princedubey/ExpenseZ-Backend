@@ -1,6 +1,7 @@
 const express = require('express');
 const { body } = require('express-validator');
 const { protect } = require('../middleware/auth.middleware');
+const { validateRequest } = require('../middleware/validate.middleware');
 const {
   getProfile,
   updateProfile,
@@ -28,6 +29,7 @@ router.put(
     body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
     body('email').optional().isEmail().withMessage('Please include a valid email'),
   ],
+  validateRequest,
   updateProfile
 );
 
@@ -42,6 +44,7 @@ router.put(
       .isLength({ min: 6 })
       .withMessage('New password must be at least 6 characters long'),
   ],
+  validateRequest,
   updatePassword
 );
 

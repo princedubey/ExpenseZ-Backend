@@ -33,6 +33,85 @@ const defaultCategories = [
     isDefault: true,
   },
 
+  // Investment Categories
+  {
+    name: 'FD',
+    icon: 'wallet',
+    color: '#8B5CF6',
+    type: 'investment',
+    isDefault: true,
+  },
+  {
+    name: 'RD',
+    icon: 'circle-dollar-sign',
+    color: '#6366F1',
+    type: 'investment',
+    isDefault: true,
+  },
+  {
+    name: 'PPF',
+    icon: 'shield-check',
+    color: '#3B82F6',
+    type: 'investment',
+    isDefault: true,
+  },
+  {
+    name: 'EPF',
+    icon: 'building-2',
+    color: '#0EA5E9',
+    type: 'investment',
+    isDefault: true,
+  },
+  {
+    name: 'Stock',
+    icon: 'trending-up',
+    color: '#10B981',
+    type: 'investment',
+    isDefault: true,
+  },
+  {
+    name: 'Mutual Fund',
+    icon: 'pie-chart',
+    color: '#14B8A6',
+    type: 'investment',
+    isDefault: true,
+  },
+  {
+    name: 'ETF',
+    icon: 'chart-line',
+    color: '#22C55E',
+    type: 'investment',
+    isDefault: true,
+  },
+  {
+    name: 'Crypto',
+    icon: 'bitcoin',
+    color: '#F59E0B',
+    type: 'investment',
+    isDefault: true,
+  },
+  {
+    name: 'Gold',
+    icon: 'crown',
+    color: '#D97706',
+    type: 'investment',
+    isDefault: true,
+  },
+  {
+    name: 'Real Estate',
+    icon: 'home',
+    color: '#6B7280',
+    type: 'investment',
+    isDefault: true,
+  },
+  {
+    name: 'Other',
+    icon: 'more-horizontal',
+    color: '#64748B',
+    type: 'investment',
+    isDefault: true,
+  },
+
   // Expense Categories
   {
     name: 'Food & Dining',

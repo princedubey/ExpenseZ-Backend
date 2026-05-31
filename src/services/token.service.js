@@ -26,6 +26,15 @@ const storeRefreshToken = async (userId, refreshToken) => {
     refreshTokenExpires: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
   });
 
+  // Also store session info in cache (best-effort). Keyed by hashed refresh token.
+  try {
+    // eslint-disable-next-line global-require
+    const { storeSession } = require('./session.service');
+    await storeSession(hashedToken, { userId, createdAt: Date.now() }, 7 * 24 * 60 * 60);
+  } catch (e) {
+    // ignore cache errors
+  }
+
   return hashedToken;
 };
 
@@ -59,10 +68,22 @@ const generateTokenPair = async (userId) => {
 
 // Clear refresh token
 const clearRefreshToken = async (userId) => {
-  await User.findByIdAndUpdate(userId, {
+  // Clear DB-stored refresh token
+  const user = await User.findByIdAndUpdate(userId, {
     refreshToken: undefined,
     refreshTokenExpires: undefined,
   });
+
+  // Try clearing cached session if present
+  try {
+    if (user && user.refreshToken) {
+      // eslint-disable-next-line global-require
+      const { clearSession } = require('./session.service');
+      await clearSession(user.refreshToken);
+    }
+  } catch (e) {
+    // ignore cache errors
+  }
 };
 
 module.exports = {

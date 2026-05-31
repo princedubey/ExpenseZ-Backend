@@ -1,19 +1,66 @@
 const Transaction = require('../models/transaction.model');
+const { deleteKey } = require('../services/cache.service');
+
+const invalidateDashboardCache = async (userId) => {
+  await deleteKey(`dashboard:${userId}`);
+};
+
+const normalizeType = (type) => {
+  if (!type) return null;
+  if (type === 'income') return 'cash_in';
+  if (type === 'expense') return 'cash_out';
+  return type;
+};
+
+const buildDateRange = ({ month, year, startDate, endDate }) => {
+  if (month || year) {
+    const resolvedMonth = month ? parseInt(month, 10) - 1 : 0;
+    const resolvedYear = year ? parseInt(year, 10) : new Date().getFullYear();
+    const rangeStart = new Date(resolvedYear, resolvedMonth, 1);
+    const rangeEnd = new Date(resolvedYear, resolvedMonth + 1, 0, 23, 59, 59, 999);
+    return { $gte: rangeStart, $lte: rangeEnd };
+  }
+
+  if (startDate || endDate) {
+    const dateQuery = {};
+    if (startDate) dateQuery.$gte = new Date(startDate);
+    if (endDate) dateQuery.$lte = new Date(endDate);
+    return dateQuery;
+  }
+
+  return null;
+};
+
+const formatTransaction = (transaction) => ({
+  id: transaction._id,
+  userId: transaction.user,
+  title: transaction.title,
+  amount: transaction.amount,
+  type: transaction.type,
+  category: transaction.category,
+  source: transaction.source,
+  note: transaction.note,
+  transactionDate: transaction.transactionDate,
+  date: transaction.transactionDate,
+  createdAt: transaction.createdAt,
+  updatedAt: transaction.updatedAt,
+});
 
 // @desc    Get all transactions
 // @route   GET /api/transactions
 // @access  Private
 exports.getTransactions = async (req, res, next) => {
   try {
-    const { type, startDate, endDate, category, page = 1, limit = 10 } = req.query;
+    const { type, month, year, startDate, endDate, category, page = 1, limit = 10 } = req.query;
     const query = { user: req.user.id };
 
-    if (type) query.type = type;
+    const normalizedType = normalizeType(type);
+    if (normalizedType) query.type = normalizedType;
     if (category) query.category = category;
-    if (startDate || endDate) {
-      query.date = {};
-      if (startDate) query.date.$gte = new Date(startDate);
-      if (endDate) query.date.$lte = new Date(endDate);
+
+    const dateRange = buildDateRange({ month, year, startDate, endDate });
+    if (dateRange) {
+      query.transactionDate = dateRange;
     }
 
     // Calculate skip value for pagination
@@ -23,7 +70,7 @@ exports.getTransactions = async (req, res, next) => {
     const total = await Transaction.countDocuments(query);
 
     const transactions = await Transaction.find(query)
-      .sort({ date: -1 })
+      .sort({ transactionDate: -1, createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
@@ -33,7 +80,7 @@ exports.getTransactions = async (req, res, next) => {
       total,
       totalPages: Math.ceil(total / parseInt(limit)),
       currentPage: parseInt(page),
-      data: transactions,
+      data: transactions.map(formatTransaction),
     });
   } catch (error) {
     next(error);
@@ -45,18 +92,26 @@ exports.getTransactions = async (req, res, next) => {
 // @access  Private
 exports.createTransaction = async (req, res, next) => {
   try {
-    const { type, category = 'Other', ...transactionData } = req.body;
+    const { type, category = 'Other', transactionDate, date, title, note = '', amount, source } = req.body;
 
     const transaction = await Transaction.create({
-      ...transactionData,
-      type,
+      user: req.user.id,
+      title,
+      amount,
+      type: normalizeType(type),
+      source: source || 'balance',
       category,
-      user: req.user.id
+      note,
+      transactionDate: transactionDate || date || new Date(),
     });
 
     res.status(201).json({
       success: true,
-      data: transaction,
+      data: formatTransaction(transaction),
+    });
+
+    void invalidateDashboardCache(req.user.id).catch((error) => {
+      console.error('Failed to invalidate dashboard cache after create:', error.message);
     });
   } catch (error) {
     next(error);
@@ -82,7 +137,11 @@ exports.getTransaction = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: transaction,
+      data: formatTransaction(transaction),
+    });
+
+    void invalidateDashboardCache(req.user.id).catch((error) => {
+      console.error('Failed to invalidate dashboard cache after update:', error.message);
     });
   } catch (error) {
     next(error);
@@ -106,14 +165,18 @@ exports.updateTransaction = async (req, res, next) => {
       });
     }
 
-    const { type, category = 'Other', ...transactionData } = req.body;
+    const { type, category = 'Other', transactionDate, date, title, note, amount, source } = req.body;
 
     transaction = await Transaction.findByIdAndUpdate(
       req.params.id,
       {
-        ...transactionData,
-        type: type || transaction.type,
-        category
+        ...(title !== undefined ? { title } : {}),
+        ...(amount !== undefined ? { amount } : {}),
+        ...(note !== undefined ? { note } : {}),
+        type: normalizeType(type) || transaction.type,
+        ...(source !== undefined ? { source } : {}),
+        category,
+        transactionDate: transactionDate || date || transaction.transactionDate,
       },
       {
         new: true,
@@ -123,7 +186,7 @@ exports.updateTransaction = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: transaction,
+      data: formatTransaction(transaction),
     });
   } catch (error) {
     next(error);
@@ -153,6 +216,10 @@ exports.deleteTransaction = async (req, res, next) => {
       success: true,
       data: {},
     });
+
+    void invalidateDashboardCache(req.user.id).catch((error) => {
+      console.error('Failed to invalidate dashboard cache after delete:', error.message);
+    });
   } catch (error) {
     next(error);
   }
@@ -163,35 +230,49 @@ exports.deleteTransaction = async (req, res, next) => {
 // @access  Private
 exports.getTransactionSummary = async (req, res, next) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { month, year, startDate, endDate } = req.query;
     const query = { user: req.user.id };
 
-    if (startDate || endDate) {
-      query.date = {};
-      if (startDate) query.date.$gte = new Date(startDate);
-      if (endDate) query.date.$lte = new Date(endDate);
+    const dateRange = buildDateRange({ month, year, startDate, endDate });
+    if (dateRange) {
+      query.transactionDate = dateRange;
     }
 
-    const [income, expense] = await Promise.all([
+    const [cashIn, cashOut, investments, investmentsFromBalance] = await Promise.all([
       Transaction.aggregate([
-        { $match: { ...query, type: 'income' } },
+        { $match: { ...query, type: 'cash_in' } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
       Transaction.aggregate([
-        { $match: { ...query, type: 'expense' } },
+        { $match: { ...query, type: 'cash_out' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+      Transaction.aggregate([
+        { $match: { ...query, type: 'investment' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+      Transaction.aggregate([
+        { $match: { ...query, type: 'investment', source: { $ne: 'existing' } } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
     ]);
 
-    const totalIncome = income[0]?.total || 0;
-    const totalExpense = expense[0]?.total || 0;
+    const totalCashIn = cashIn[0]?.total || 0;
+    const totalCashOut = cashOut[0]?.total || 0;
+    const totalInvestments = investments[0]?.total || 0;
+    const investedFromBalance = investmentsFromBalance[0]?.total || 0;
+    const savings = totalCashIn - totalCashOut - investedFromBalance;
 
     res.json({
       success: true,
       data: {
-        income: totalIncome,
-        expense: totalExpense,
-        balance: totalIncome - totalExpense,
+        cashIn: totalCashIn,
+        cashOut: totalCashOut,
+        investments: totalInvestments,
+        savings,
+        income: totalCashIn,
+        expense: totalCashOut,
+        balance: savings,
       },
     });
   } catch (error) {

@@ -6,6 +6,15 @@ const {
   clearRefreshToken,
 } = require('../services/token.service');
 
+const formatUser = (user) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  profileImage: user.profileImage || user.avatar || '',
+  avatar: user.profileImage || user.avatar || '',
+  currency: user.currency,
+});
+
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
@@ -36,13 +45,7 @@ exports.register = async (req, res, next) => {
       success: true,
       accessToken,
       refreshToken,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        currency: user.currency,
-      },
+      user: formatUser(user),
     });
   } catch (error) {
     next(error);
@@ -81,13 +84,7 @@ exports.login = async (req, res, next) => {
       success: true,
       accessToken,
       refreshToken,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        currency: user.currency,
-      },
+      user: formatUser(user),
     });
   } catch (error) {
     next(error);
@@ -111,7 +108,7 @@ exports.googleLogin = async (req, res, next) => {
       user = await User.create({
         email,
         name,
-        avatar: picture,
+        profileImage: picture,
         googleId,
         isGoogleUser: true,
       });
@@ -119,7 +116,7 @@ exports.googleLogin = async (req, res, next) => {
       // Link existing account with Google
       user.googleId = googleId;
       user.isGoogleUser = true;
-      user.avatar = picture;
+      user.profileImage = picture;
       await user.save();
     }
 
@@ -130,13 +127,7 @@ exports.googleLogin = async (req, res, next) => {
       success: true,
       accessToken,
       refreshToken,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        currency: user.currency,
-      },
+      user: formatUser(user),
     });
   } catch (error) {
     next(error);
@@ -214,7 +205,8 @@ exports.getMe = async (req, res, next) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        avatar: user.avatar,
+        profileImage: user.profileImage || user.avatar || '',
+        avatar: user.profileImage || user.avatar || '',
         currency: user.currency,
       },
     });

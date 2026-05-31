@@ -1,5 +1,8 @@
 const express = require('express');
 const authRoutes = require('./auth.routes');
+const analyticsRoutes = require('./analytics.routes');
+const dashboardRoutes = require('./dashboard.routes');
+const categoryRoutes = require('./category.routes');
 const transactionRoutes = require('./transaction.routes');
 const userRoutes = require('./user.routes');
 
@@ -34,6 +37,14 @@ router.get('/', (req, res) => {
           { path: '/summary', method: 'GET', description: 'Get transaction summary' },
         ],
       },
+      dashboard: {
+        base: '/api/dashboard',
+        routes: [{ path: '/', method: 'GET', description: 'Get dashboard summary' }],
+      },
+      analytics: {
+        base: '/api/analytics',
+        routes: [{ path: '/monthly', method: 'GET', description: 'Get monthly analytics' }],
+      },
       categories: {
         base: '/api/categories',
         routes: [
@@ -52,12 +63,19 @@ router.get('/', (req, res) => {
           { path: '/password', method: 'PUT', description: 'Update user password' },
         ],
       },
+      health: {
+        base: '/health',
+        routes: [{ path: '/', method: 'GET', description: 'Health check' }],
+      },
     },
   });
 });
 
 // Mount routes
 router.use('/api/auth', authRoutes);
+router.use('/api/dashboard', dashboardRoutes);
+router.use('/api/analytics', analyticsRoutes);
+router.use('/api/categories', categoryRoutes);
 router.use('/api/transactions', transactionRoutes);
 router.use('/api/users', userRoutes);
 

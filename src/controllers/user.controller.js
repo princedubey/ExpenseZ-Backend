@@ -2,6 +2,15 @@ const User = require('../models/user.model');
 const Transaction = require('../models/transaction.model');
 const mongoose = require('mongoose');
 
+const formatUser = (user) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  profileImage: user.profileImage || user.avatar || '',
+  avatar: user.profileImage || user.avatar || '',
+  currency: user.currency,
+});
+
 // @desc    Get user profile
 // @route   GET /api/users/profile
 // @access  Private
@@ -10,13 +19,7 @@ exports.getProfile = async (req, res, next) => {
     const user = await User.findById(req.user.id);
     res.json({
       success: true,
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        currency: user.currency,
-      },
+      data: formatUser(user),
     });
   } catch (error) {
     next(error);
@@ -30,7 +33,10 @@ exports.updateProfile = async (req, res, next) => {
   try {
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      req.body,
+      {
+        ...req.body,
+        profileImage: req.body.profileImage || req.body.avatar,
+      },
       {
         new: true,
         runValidators: true,
@@ -39,13 +45,7 @@ exports.updateProfile = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        currency: user.currency,
-      },
+      data: formatUser(user),
     });
   } catch (error) {
     next(error);
@@ -90,13 +90,13 @@ exports.getUserStats = async (req, res, next) => {
   try {
     const userId = new mongoose.Types.ObjectId(req.user.id);
 
-    // Get total income and expense
+    // Get total cash in and cash out
     const [income, expense] = await Promise.all([
       Transaction.aggregate([
         { 
           $match: { 
             user: userId,
-            type: 'income'
+            type: 'cash_in'
           }
         },
         {
@@ -110,7 +110,7 @@ exports.getUserStats = async (req, res, next) => {
         {
           $match: {
             user: userId,
-            type: 'expense'
+            type: 'cash_out'
           }
         },
         {
@@ -124,7 +124,7 @@ exports.getUserStats = async (req, res, next) => {
 
     // Get last 10 transactions
     const recentTransactions = await Transaction.find({ user: userId })
-      .sort({ date: -1 })
+      .sort({ transactionDate: -1, createdAt: -1 })
       .limit(10);
 
     // Get spending by categories
@@ -132,7 +132,7 @@ exports.getUserStats = async (req, res, next) => {
       {
         $match: {
           user: userId,
-          type: 'expense'
+          type: 'cash_out'
         }
       },
       {
@@ -152,7 +152,7 @@ exports.getUserStats = async (req, res, next) => {
       {
         $match: {
           user: userId,
-          type: 'income'
+          type: 'cash_in'
         }
       },
       {
@@ -218,14 +218,14 @@ exports.getAnalytics = async (req, res, next) => {
       {
         $match: {
           user: userId,
-          date: { $gte: sixMonthsAgo }
+          transactionDate: { $gte: sixMonthsAgo }
         }
       },
       {
         $group: {
           _id: {
-            year: { $year: '$date' },
-            month: { $month: '$date' },
+            year: { $year: '$transactionDate' },
+            month: { $month: '$transactionDate' },
             type: '$type'
           },
           total: { $sum: '$amount' }
@@ -239,12 +239,12 @@ exports.getAnalytics = async (req, res, next) => {
           },
           income: {
             $sum: {
-              $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0]
+              $cond: [{ $eq: ['$_id.type', 'cash_in'] }, '$total', 0]
             }
           },
           expense: {
             $sum: {
-              $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0]
+              $cond: [{ $eq: ['$_id.type', 'cash_out'] }, '$total', 0]
             }
           }
         }
@@ -285,8 +285,8 @@ exports.getAnalytics = async (req, res, next) => {
       {
         $match: {
           user: userId,
-          type: 'expense',
-          date: { $gte: sixMonthsAgo }
+          type: 'cash_out',
+          transactionDate: { $gte: sixMonthsAgo }
         }
       },
       {
@@ -306,8 +306,8 @@ exports.getAnalytics = async (req, res, next) => {
         {
           $match: {
             user: userId,
-            type: 'income',
-            date: { $gte: sixMonthsAgo }
+              type: 'cash_in',
+              transactionDate: { $gte: sixMonthsAgo }
           }
         },
         {
@@ -321,8 +321,8 @@ exports.getAnalytics = async (req, res, next) => {
         {
           $match: {
             user: userId,
-            type: 'expense',
-            date: { $gte: sixMonthsAgo }
+              type: 'cash_out',
+              transactionDate: { $gte: sixMonthsAgo }
           }
         },
         {

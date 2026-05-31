@@ -23,7 +23,7 @@ const userSchema = new mongoose.Schema({
     minlength: [6, 'Password must be at least 6 characters'],
     select: false,
   },
-  avatar: {
+  profileImage: {
     type: String,
     default: '',
   },
@@ -51,16 +51,27 @@ const userSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   versionKey: false,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true },
 });
+
+userSchema.virtual('avatar')
+  .get(function () {
+    return this.profileImage;
+  })
+  .set(function (value) {
+    this.profileImage = value;
+  });
 
 // Encrypt password using bcrypt
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
-    next();
+    return next();
   }
 
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  next();
 });
 
 // Match user entered password to hashed password in database

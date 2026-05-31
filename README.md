@@ -86,6 +86,26 @@ PORT=5000
 # Add other environment variables as needed
 ```
 
+### Redis / Upstash
+
+The backend supports two modes for caching:
+
+- Native Redis via `REDIS_URL` (preferred when a TCP Redis endpoint is available).
+- Upstash REST API via `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (fallback for serverless or restricted environments).
+
+If `REDIS_URL` is present the application will use `ioredis`. If not, and `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` are set, the backend will use Upstash's REST endpoints for `GET`, `SET`, and `DEL` with TTL support.
+
+Example `.env` entries for Upstash (do not commit secrets):
+
+```env
+UPSTASH_REDIS_REST_URL="https://your-upstash-endpoint.upstash.io"
+UPSTASH_REDIS_REST_TOKEN="<your-upstash-token>"
+```
+
+Notes:
+- Dashboard caching uses a 300-second TTL by default.
+- REST mode is slightly higher-latency than native Redis; prefer TCP Redis in high-throughput environments.
+
 ## Development
 
 1. Install dependencies:
