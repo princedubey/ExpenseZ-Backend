@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 const Transaction = require('../models/transaction.model');
-const { getMonthlyCategoryTotals } = require('../services/dashboard.service');
 
 // @desc    Get monthly analytics
 // @route   GET /api/analytics/monthly
@@ -15,16 +14,24 @@ exports.getMonthlyAnalytics = async (req, res, next) => {
     const rangeStart = new Date(yearValue, monthValue - 1, 1);
     const rangeEnd = new Date(yearValue, monthValue, 0, 23, 59, 59, 999);
 
-    const [categories, monthlyStats, investmentsFromBalanceAgg, loansFromBalanceAgg, summary, dayOfWeekStats, topTransactions, weeklyStats, allTimeSpending] = await Promise.all([
-      getMonthlyCategoryTotals(userId, monthValue, yearValue),
-      // 1. Monthly Stats (Historical - last 2 years)
+    // Last 3 months for contextual charts
+    const last3MonthsStart = new Date();
+    last3MonthsStart.setMonth(last3MonthsStart.getMonth() - 2);
+    last3MonthsStart.setDate(1);
+    last3MonthsStart.setHours(0, 0, 0, 0);
+
+    const [
+      monthlyStats,
+      summaryAgg,
+      dayOfWeekStats,
+      topTransactions,
+      weeklyStats,
+      allTimeSpending,
+      currentMonthSpending,
+    ] = await Promise.all([
+      // 1. Monthly Stats — ALL months with data (no date filter, include all history)
       Transaction.aggregate([
-        {
-          $match: {
-            user: userId,
-            transactionDate: { $gte: new Date(new Date().getFullYear() - 2, 0, 1) },
-          },
-        },
+        { $match: { user: userId } },
         {
           $group: {
             _id: {
@@ -38,197 +45,160 @@ exports.getMonthlyAnalytics = async (req, res, next) => {
         },
         {
           $group: {
-            _id: {
-              year: '$_id.year',
-              month: '$_id.month',
-            },
-            income: {
-              $sum: { $cond: [{ $eq: ['$_id.type', 'cash_in'] }, '$total', 0] },
-            },
-            expense: {
-              $sum: { $cond: [{ $eq: ['$_id.type', 'cash_out'] }, '$total', 0] },
-            },
-            investments_total: {
-              $sum: { $cond: [{ $eq: ['$_id.type', 'investment'] }, '$total', 0] },
-            },
+            _id: { year: '$_id.year', month: '$_id.month' },
+            income: { $sum: { $cond: [{ $eq: ['$_id.type', 'cash_in'] }, '$total', 0] } },
+            expense: { $sum: { $cond: [{ $eq: ['$_id.type', 'cash_out'] }, '$total', 0] } },
+            investments_total: { $sum: { $cond: [{ $eq: ['$_id.type', 'investment'] }, '$total', 0] } },
             investments_from_balance: {
-              $sum: { $cond: [{ $and: [{ $eq: ['$_id.type', 'investment'] }, { $eq: ['$_id.source', 'balance'] }] }, '$total', 0] },
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ['$_id.type', 'investment'] }, { $eq: ['$_id.source', 'balance'] }] },
+                  '$total', 0,
+                ],
+              },
             },
-            loans_total: {
-              $sum: { $cond: [{ $eq: ['$_id.type', 'loan'] }, '$total', 0] },
-            },
+            loans_total: { $sum: { $cond: [{ $eq: ['$_id.type', 'loan'] }, '$total', 0] } },
             loans_from_balance: {
-              $sum: { $cond: [{ $and: [{ $eq: ['$_id.type', 'loan'] }, { $eq: ['$_id.source', 'balance'] }] }, '$total', 0] },
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ['$_id.type', 'loan'] }, { $eq: ['$_id.source', 'balance'] }] },
+                  '$total', 0,
+                ],
+              },
             },
           },
         },
-        {
-          $sort: { '_id.year': 1, '_id.month': 1 },
-        },
+        { $sort: { '_id.year': 1, '_id.month': 1 } },
       ]),
-      // 2. Investments from balance
+
+      // 2. ALL-TIME summary by type
       Transaction.aggregate([
-        {
-          $match: {
-            user: userId,
-            transactionDate: { $gte: rangeStart, $lte: rangeEnd },
-            type: 'investment',
-            source: 'balance',
-          },
-        },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
+        { $match: { user: userId } },
+        { $group: { _id: { type: '$type', source: '$source' }, total: { $sum: '$amount' } } },
       ]),
-      // 3. Loans from balance
-      Transaction.aggregate([
-        {
-          $match: {
-            user: userId,
-            transactionDate: { $gte: rangeStart, $lte: rangeEnd },
-            type: 'loan',
-            source: 'balance',
-          },
-        },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
-      ]),
-      // 4. Summary - ALL TIME (not just current month)
-      Transaction.aggregate([
-        {
-          $match: {
-            user: userId,
-          },
-        },
-        {
-          $group: {
-            _id: '$type',
-            total: { $sum: '$amount' },
-          },
-        },
-      ]),
-      // 5. Day of Week Stats (All Time or Current Month? Let's do current month)
-      Transaction.aggregate([
-        {
-          $match: {
-            user: userId,
-            transactionDate: { $gte: rangeStart, $lte: rangeEnd },
-            type: 'cash_out'
-          },
-        },
-        {
-          $group: {
-            _id: { $dayOfWeek: '$transactionDate' }, // 1 = Sunday, 2 = Monday, ... 7 = Saturday
-            total: { $sum: '$amount' },
-          },
-        },
-        { $sort: { _id: 1 } }
-      ]),
-      // 6. Top 5 Transactions
-      Transaction.find({
-        user: userId,
-        transactionDate: { $gte: rangeStart, $lte: rangeEnd },
-        type: 'cash_out'
-      })
-      .sort({ amount: -1 })
-      .limit(5)
-      .select('title amount category transactionDate type'),
-      // 7. Weekly Stats (Current month expenses grouped by week)
-      Transaction.aggregate([
-        {
-          $match: {
-            user: userId,
-            transactionDate: { $gte: rangeStart, $lte: rangeEnd },
-            type: 'cash_out'
-          },
-        },
-        {
-          $group: {
-            _id: { 
-              // Rough week of month: ceiling of (day of month / 7)
-              $ceil: { $divide: [{ $dayOfMonth: '$transactionDate' }, 7] }
-            },
-            total: { $sum: '$amount' },
-          },
-        },
-        { $sort: { _id: 1 } }
-      ]),
-      // 8. All-time spending by category
+
+      // 3. Day-of-week stats — last 3 months expenses
       Transaction.aggregate([
         {
           $match: {
             user: userId,
             type: 'cash_out',
+            transactionDate: { $gte: last3MonthsStart },
+          },
+        },
+        { $group: { _id: { $dayOfWeek: '$transactionDate' }, total: { $sum: '$amount' } } },
+        { $sort: { _id: 1 } },
+      ]),
+
+      // 4. Top 5 largest expenses — ALL TIME
+      Transaction.find({ user: userId, type: 'cash_out' })
+        .sort({ amount: -1 })
+        .limit(5)
+        .select('title amount category transactionDate type'),
+
+      // 5. Weekly stats — current selected month expenses
+      Transaction.aggregate([
+        {
+          $match: {
+            user: userId,
+            transactionDate: { $gte: rangeStart, $lte: rangeEnd },
+            type: 'cash_out',
           },
         },
         {
           $group: {
-            _id: '$category',
+            _id: { $ceil: { $divide: [{ $dayOfMonth: '$transactionDate' }, 7] } },
             total: { $sum: '$amount' },
           },
         },
+        { $sort: { _id: 1 } },
+      ]),
+
+      // 6. All-time spending by category
+      Transaction.aggregate([
+        { $match: { user: userId, type: 'cash_out' } },
+        { $group: { _id: '$category', total: { $sum: '$amount' } } },
         { $sort: { total: -1 } },
-      ])
+      ]),
+
+      // 7. Current month spending by category
+      Transaction.aggregate([
+        { $match: { user: userId, type: 'cash_out', transactionDate: { $gte: rangeStart, $lte: rangeEnd } } },
+        { $group: { _id: '$category', total: { $sum: '$amount' } } },
+        { $sort: { total: -1 } },
+      ]),
     ]);
 
-    const lastSixMonths = [];
-    const currentDate = new Date();
-    for (let i = 0; i < 6; i += 1) {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
-      lastSixMonths.unshift({
-        year: date.getFullYear(),
-        month: date.getMonth() + 1,
-      });
+    // ── Build last 12 months scaffold ──────────────────────────────────────────
+    const last12Months = [];
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      last12Months.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
     }
 
-    const filledMonthlyStats = lastSixMonths.map(({ year: statYear, month: statMonth }) => {
-      const existingStat = monthlyStats.find(
-        (stat) => stat._id.year === statYear && stat._id.month === statMonth
-      );
-
+    const filledMonthlyStats = last12Months.map(({ year: sy, month: sm }) => {
+      const found = monthlyStats.find((s) => s._id.year === sy && s._id.month === sm);
+      const inc = found?.income || 0;
+      const exp = found?.expense || 0;
+      const inv = found?.investments_total || 0;
+      const invBal = found?.investments_from_balance || 0;
+      const loan = found?.loans_total || 0;
+      const loanBal = found?.loans_from_balance || 0;
       return {
-        month: `${statYear}-${String(statMonth).padStart(2, '0')}`,
-        income: existingStat?.income || 0,
-        expense: existingStat?.expense || 0,
-        investments: existingStat?.investments_total || 0,
-        investmentsFromBalance: existingStat?.investments_from_balance || 0,
-        loans: existingStat?.loans_total || 0,
-        loansFromBalance: existingStat?.loans_from_balance || 0,
-        balance: (existingStat?.income || 0) - (existingStat?.expense || 0) - (existingStat?.investments_from_balance || 0) - (existingStat?.loans_from_balance || 0),
+        month: `${sy}-${String(sm).padStart(2, '0')}`,
+        income: inc,
+        expense: exp,
+        investments: inv,
+        investmentsFromBalance: invBal,
+        loans: loan,
+        loansFromBalance: loanBal,
+        // True net savings: income minus direct cash outflows from balance
+        savings: inc - exp - invBal - loanBal,
+        balance: inc - exp - invBal - loanBal,
       };
     });
 
-    // All-time investments/loans from balance
-    const allTimeInvestmentsFromBalance = await Transaction.aggregate([
-      { $match: { user: userId, type: 'investment', source: 'balance' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]);
-    const allTimeLoansFromBalance = await Transaction.aggregate([
-      { $match: { user: userId, type: 'loan', source: 'balance' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]);
+    // ── Compute ALL-TIME summary ───────────────────────────────────────────────
+    const totalIncome = summaryAgg
+      .filter((s) => s._id.type === 'cash_in')
+      .reduce((acc, s) => acc + s.total, 0);
 
-    const totalIncome = summary.find((item) => item._id === 'cash_in')?.total || 0;
-    const totalExpense = summary.find((item) => item._id === 'cash_out')?.total || 0;
-    const totalInvestments = summary.find((item) => item._id === 'investment')?.total || 0;
-    const totalLoans = summary.find((item) => item._id === 'loan')?.total || 0;
-    const totalInvestmentsFromBalance = allTimeInvestmentsFromBalance[0]?.total || 0;
-    const totalLoansFromBalance = allTimeLoansFromBalance[0]?.total || 0;
+    const totalExpense = summaryAgg
+      .filter((s) => s._id.type === 'cash_out')
+      .reduce((acc, s) => acc + s.total, 0);
 
-    // Map Day of Week
+    const totalInvestments = summaryAgg
+      .filter((s) => s._id.type === 'investment')
+      .reduce((acc, s) => acc + s.total, 0);
+
+    const totalLoans = summaryAgg
+      .filter((s) => s._id.type === 'loan')
+      .reduce((acc, s) => acc + s.total, 0);
+
+    // "from balance" = real cash outflow (source = 'balance', NOT 'existing')
+    const totalInvestmentsFromBalance = summaryAgg
+      .filter((s) => s._id.type === 'investment' && s._id.source === 'balance')
+      .reduce((acc, s) => acc + s.total, 0);
+
+    const totalLoansFromBalance = summaryAgg
+      .filter((s) => s._id.type === 'loan' && s._id.source === 'balance')
+      .reduce((acc, s) => acc + s.total, 0);
+
+    // True net balance: income − expenses − cash-out investments − cash-out loans
+    const netBalance = totalIncome - totalExpense - totalInvestmentsFromBalance - totalLoansFromBalance;
+
+    // ── Day of Week ───────────────────────────────────────────────────────────
     const daysMap = { 1: 'Sun', 2: 'Mon', 3: 'Tue', 4: 'Wed', 5: 'Thu', 6: 'Fri', 7: 'Sat' };
-    const formattedDayOfWeekStats = [1, 2, 3, 4, 5, 6, 7].map(dayNum => {
-      const existing = dayOfWeekStats.find(d => d._id === dayNum);
-      return {
-        day: daysMap[dayNum],
-        total: existing ? existing.total : 0
-      };
+    const formattedDayOfWeekStats = [1, 2, 3, 4, 5, 6, 7].map((dayNum) => {
+      const existing = dayOfWeekStats.find((d) => d._id === dayNum);
+      return { day: daysMap[dayNum], total: existing ? existing.total : 0 };
     });
 
-    // Map Weekly Stats
-    const formattedWeeklyStats = [1, 2, 3, 4, 5].map(weekNum => {
-      const existing = weeklyStats.find(w => w._id === weekNum);
-      return {
-        week: `Week ${weekNum}`,
-        total: existing ? existing.total : 0
-      };
+    // ── Weekly Stats ─────────────────────────────────────────────────────────
+    const formattedWeeklyStats = [1, 2, 3, 4, 5].map((weekNum) => {
+      const existing = weeklyStats.find((w) => w._id === weekNum);
+      return { week: `Wk ${weekNum}`, total: existing ? existing.total : 0 };
     });
 
     res.json({
@@ -236,9 +206,9 @@ exports.getMonthlyAnalytics = async (req, res, next) => {
       data: {
         month: monthValue,
         year: yearValue,
-        categories,
         monthlyStats: filledMonthlyStats,
         spendingByCategories: allTimeSpending.map((c) => ({ category: c._id, total: c.total })),
+        currentMonthCategories: currentMonthSpending.map((c) => ({ category: c._id, total: c.total })),
         dayOfWeekStats: formattedDayOfWeekStats,
         topTransactions,
         weeklyStats: formattedWeeklyStats,
@@ -249,7 +219,9 @@ exports.getMonthlyAnalytics = async (req, res, next) => {
           totalLoans,
           totalInvestmentsFromBalance,
           totalLoansFromBalance,
-          balance: totalIncome - totalExpense - totalInvestmentsFromBalance - totalLoansFromBalance,
+          netBalance,
+          // For convenience
+          netSavings: netBalance,
         },
       },
     });
