@@ -5,6 +5,7 @@ const dashboardRoutes = require('./dashboard.routes');
 const categoryRoutes = require('./category.routes');
 const transactionRoutes = require('./transaction.routes');
 const userRoutes = require('./user.routes');
+const newsRoutes = require('./news.routes');
 
 const router = express.Router();
 
@@ -63,6 +64,12 @@ router.get('/', (req, res) => {
           { path: '/password', method: 'PUT', description: 'Update user password' },
         ],
       },
+      news: {
+        base: '/api/news',
+        routes: [
+          { path: '/', method: 'GET', description: 'Get India market financial news' }
+        ]
+      },
       health: {
         base: '/health',
         routes: [{ path: '/', method: 'GET', description: 'Health check' }],
@@ -78,6 +85,7 @@ router.use('/api/analytics', analyticsRoutes);
 router.use('/api/categories', categoryRoutes);
 router.use('/api/transactions', transactionRoutes);
 router.use('/api/users', userRoutes);
+router.use('/api/news', newsRoutes);
 
 // 404 handler
 router.use((req, res) => {
