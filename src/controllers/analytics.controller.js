@@ -15,14 +15,14 @@ exports.getMonthlyAnalytics = async (req, res, next) => {
     const rangeStart = new Date(yearValue, monthValue - 1, 1);
     const rangeEnd = new Date(yearValue, monthValue, 0, 23, 59, 59, 999);
 
-    const [categories, monthlyStats, investmentsFromBalanceAgg, loansFromBalanceAgg, summary, dayOfWeekStats, topTransactions, weeklyStats] = await Promise.all([
+    const [categories, monthlyStats, investmentsFromBalanceAgg, loansFromBalanceAgg, summary, dayOfWeekStats, topTransactions, weeklyStats, allTimeSpending] = await Promise.all([
       getMonthlyCategoryTotals(userId, monthValue, yearValue),
-      // 1. Monthly Stats (Historical)
+      // 1. Monthly Stats (Historical - last 2 years)
       Transaction.aggregate([
         {
           $match: {
             user: userId,
-            transactionDate: { $gte: new Date(new Date().getFullYear() - 1, 0, 1) },
+            transactionDate: { $gte: new Date(new Date().getFullYear() - 2, 0, 1) },
           },
         },
         {
@@ -90,12 +90,11 @@ exports.getMonthlyAnalytics = async (req, res, next) => {
         },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
-      // 4. Summary
+      // 4. Summary - ALL TIME (not just current month)
       Transaction.aggregate([
         {
           $match: {
             user: userId,
-            transactionDate: { $gte: rangeStart, $lte: rangeEnd },
           },
         },
         {
@@ -150,6 +149,22 @@ exports.getMonthlyAnalytics = async (req, res, next) => {
           },
         },
         { $sort: { _id: 1 } }
+      ]),
+      // 8. All-time spending by category
+      Transaction.aggregate([
+        {
+          $match: {
+            user: userId,
+            type: 'cash_out',
+          },
+        },
+        {
+          $group: {
+            _id: '$category',
+            total: { $sum: '$amount' },
+          },
+        },
+        { $sort: { total: -1 } },
       ])
     ]);
 
@@ -180,12 +195,22 @@ exports.getMonthlyAnalytics = async (req, res, next) => {
       };
     });
 
+    // All-time investments/loans from balance
+    const allTimeInvestmentsFromBalance = await Transaction.aggregate([
+      { $match: { user: userId, type: 'investment', source: 'balance' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    const allTimeLoansFromBalance = await Transaction.aggregate([
+      { $match: { user: userId, type: 'loan', source: 'balance' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+
     const totalIncome = summary.find((item) => item._id === 'cash_in')?.total || 0;
     const totalExpense = summary.find((item) => item._id === 'cash_out')?.total || 0;
     const totalInvestments = summary.find((item) => item._id === 'investment')?.total || 0;
     const totalLoans = summary.find((item) => item._id === 'loan')?.total || 0;
-    const totalInvestmentsFromBalance = investmentsFromBalanceAgg[0]?.total || 0;
-    const totalLoansFromBalance = loansFromBalanceAgg[0]?.total || 0;
+    const totalInvestmentsFromBalance = allTimeInvestmentsFromBalance[0]?.total || 0;
+    const totalLoansFromBalance = allTimeLoansFromBalance[0]?.total || 0;
 
     // Map Day of Week
     const daysMap = { 1: 'Sun', 2: 'Mon', 3: 'Tue', 4: 'Wed', 5: 'Thu', 6: 'Fri', 7: 'Sat' };
@@ -213,7 +238,7 @@ exports.getMonthlyAnalytics = async (req, res, next) => {
         year: yearValue,
         categories,
         monthlyStats: filledMonthlyStats,
-        spendingByCategories: categories,
+        spendingByCategories: allTimeSpending.map((c) => ({ category: c._id, total: c.total })),
         dayOfWeekStats: formattedDayOfWeekStats,
         topTransactions,
         weeklyStats: formattedWeeklyStats,
