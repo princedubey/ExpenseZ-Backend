@@ -1,5 +1,8 @@
+const { OAuth2Client } = require('google-auth-library');
 const admin = require('../config/firebase.config');
 const User = require('../models/user.model');
+
+const oauth2Client = new OAuth2Client();
 const {
   generateTokenPair,
   verifyRefreshToken,
@@ -98,8 +101,37 @@ exports.googleLogin = async (req, res, next) => {
   try {
     const { idToken } = req.body;
 
-    // Verify Firebase ID token
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    let decodedToken;
+    try {
+      // Verify Firebase ID token
+      decodedToken = await admin.auth().verifyIdToken(idToken);
+    } catch (firebaseError) {
+      console.log('Firebase verification failed, trying Google library verification:', firebaseError.message);
+      // Fallback to cryptographic signature verification for standard Google ID tokens (e.g. from web-browser flow in Expo Go)
+      try {
+        const ticket = await oauth2Client.verifyIdToken({
+          idToken,
+          audience: '129393014646-vtn4vfso08jc7o29ipsut5vur8s5co2s.apps.googleusercontent.com',
+        });
+        const payload = ticket.getPayload();
+        if (!payload) {
+          throw new Error('No payload returned from Google verification');
+        }
+        decodedToken = {
+          email: payload.email,
+          name: payload.name,
+          picture: payload.picture,
+          sub: payload.sub,
+        };
+      } catch (googleError) {
+        console.error('Google library verification also failed:', googleError.message);
+        return res.status(401).json({
+          success: false,
+          message: 'Google login failed: Invalid token',
+        });
+      }
+    }
+
     const { email, name, picture, sub: googleId } = decodedToken;
 
     // Find or create user
